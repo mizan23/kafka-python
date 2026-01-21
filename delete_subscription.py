@@ -10,11 +10,6 @@ def delete_subscription(token_mgr, subscription_id):
         "Content-Type": "application/json"
     }
 
-    response = requests.delete(
-        url,
-        headers=headers,
-        json={},
-        verify=VERIFY_SSL
-    )
+    response = requests.delete(url, headers=headers, verify=VERIFY_SSL)
     response.raise_for_status()
     print("🗑️ Subscription deleted")

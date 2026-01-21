@@ -4,13 +4,11 @@ from configuration import SUBSCRIPTION_URL, VERIFY_SSL
 
 def create_subscription(token_mgr):
     headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {token_mgr.get_access_token()}"
+        "Authorization": f"Bearer {token_mgr.get_access_token()}",
+        "Content-Type": "application/json"
     }
 
-    payload = {
-        "categories": [{"name": "NSP-FAULT"}]
-    }
+    payload = {"categories": [{"name": "NSP-FAULT"}]}
 
     response = requests.post(
         SUBSCRIPTION_URL,
