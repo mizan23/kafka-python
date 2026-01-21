@@ -75,7 +75,7 @@ kafka-python/
 ## 📦 Installation
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/mizan23/kafka-python.git
 cd kafka-python
 python3 -m venv venv
 source venv/bin/activate
