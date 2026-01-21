@@ -1,0 +1,8 @@
+# Certificates / keystores
+*.p12
+*.pem
+*.keystore
+*.truststore
+
+# Backup keystores
+backup_jks/
