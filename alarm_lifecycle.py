@@ -52,69 +52,79 @@ VALUES (%s, %s::jsonb, now());
 """
 
 # -------------------------------
-# Lifecycle handler (CORRECT)
+# Lifecycle handler
 # -------------------------------
 def handle_alarm_lifecycle(alarm: dict):
     """
-    Alarm lifecycle (NSP-correct):
-
-    alarm-create           -> active_alarms
-    alarm-change + CLEAR   -> move active -> history
-    alarm-change (orphan)  -> ignore
-    alarm-delete           -> ignore
+    alarm-create         -> active_alarms
+    alarm-change + CLEAR -> history
+    alarm-delete         -> ignored
     """
 
     alarm_id = alarm.get("alarm_id")
     event_type = alarm.get("event_type")
     severity = alarm.get("severity")
 
-    # ---------------------------
-    # Hard safety guards
-    # ---------------------------
     if not alarm_id or not event_type:
         return
 
-    # ---------------------------
-    # Ignore deletes completely
-    # ---------------------------
     if event_type == "alarm-delete":
         return
 
     with get_conn() as conn:
         with conn.cursor() as cur:
 
-            # =====================================================
-            # CLEAR → move from active → history
-            # =====================================================
             if event_type == "alarm-change" and severity == "CLEAR":
                 cur.execute(DELETE_ACTIVE_SQL, (alarm_id,))
                 row = cur.fetchone()
 
-                # Only move if we actually had an active alarm
                 if row and row[0]:
                     cur.execute(
                         INSERT_HISTORY_SQL,
-                        (
-                            alarm_id,
-                            json.dumps(row[0], default=str),
-                        ),
+                        (alarm_id, json.dumps(row[0], default=str)),
                     )
                 return
 
-            # =====================================================
-            # ONLY alarm-create can create/update active alarms
-            # =====================================================
             if event_type != "alarm-create":
                 return
 
-            # Must have meaningful data
             if not alarm.get("alarm_name") or not alarm.get("ne_name"):
                 return
 
             cur.execute(
                 UPSERT_ACTIVE_SQL,
-                (
-                    alarm_id,
-                    json.dumps(alarm, default=str),
-                ),
+                (alarm_id, json.dumps(alarm, default=str)),
             )
+
+# -------------------------------
+# Power Issue state helper
+# -------------------------------
+def get_active_power_issues():
+    """
+    Fetch currently active Power Issue alarms.
+    """
+    sql = """
+    SELECT alarm
+    FROM active_alarms
+    WHERE alarm->>'alarm_name' = 'Power Issue'
+      AND alarm->>'object_type' = 'PHYSICALCONNECTION';
+    """
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(sql)
+        return [row[0] for row in cur.fetchall()]
+
+def get_active_los_alarms():
+    """
+    Fetch currently active Loss of signal - OCH alarms.
+    """
+    sql = """
+    SELECT alarm
+    FROM active_alarms
+    WHERE alarm->>'alarm_name' = 'Loss of signal - OCH'
+      AND alarm->>'severity' IN ('CRITICAL', 'MAJOR');
+    """
+
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(sql)
+        return [row[0] for row in cur.fetchall()]

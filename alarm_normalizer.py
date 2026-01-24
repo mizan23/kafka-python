@@ -1,7 +1,44 @@
+from datetime import datetime, timezone, timedelta
+import pytz
 from datetime import datetime
 from severity_mapper import map_severity
 from object_parser import parse_affected_object
 from alarm_filters import should_drop_alarm
+from alarm_lifecycle import get_active_power_issues
+from alarm_lifecycle import get_active_los_alarms
+
+
+# -------------------------------
+# Time conversion
+# -------------------------------
+LOCAL_TZ = pytz.timezone("Asia/Dhaka")
+
+def utc_ms_to_local_iso(ts):
+    """Convert epoch ms → ISO string in Asia/Dhaka (+6) timezone."""
+    if ts is None:
+        return None
+
+    if isinstance(ts, dict):
+        ts = (
+            ts.get("value")
+            or ts.get("milliseconds")
+            or (ts.get("seconds", 0) * 1000)
+        )
+
+    if isinstance(ts, str):
+        if not ts.isdigit():
+            return None
+        ts = int(ts)
+
+    if not isinstance(ts, (int, float)):
+        return None
+
+    try:
+        utc_dt = datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
+        local_dt = utc_dt.astimezone(LOCAL_TZ)
+        return local_dt.isoformat()  # e.g. 2026-01-23T17:05:10+06:00
+    except Exception:
+        return None
 
 
 def epoch_ms_to_utc(ts):
@@ -31,7 +68,7 @@ def epoch_ms_to_utc(ts):
 
 def normalize_alarm(event):
     """
-    Normalize Nokia NSP/NFMT alarm notification into a stable structure.
+    Normalize Nokia NSP/NFMT alarm notification.
     """
 
     notif = event.get("data", {}).get("ietf-restconf:notification", {})
@@ -48,9 +85,6 @@ def normalize_alarm(event):
     if not alarm or not isinstance(alarm, dict):
         return None
 
-    # -------------------------------
-    # Extract core fields
-    # -------------------------------
     alarm_name = alarm.get("alarmName")
     specific_problem = alarm.get("specificProblem")
     probable_cause = alarm.get("probableCause")
@@ -59,15 +93,15 @@ def normalize_alarm(event):
     source = alarm.get("sourceType")
     object_type = alarm.get("affectedObjectType")
 
-    # -------------------------------
-    # Resolve severity BEFORE filtering
-    # -------------------------------
     severity_raw = alarm.get("severity")
     severity = map_severity(severity_raw, specific_problem)
 
-    # -------------------------------
-    # FIXED: keyword arguments (CORRECT)
-    # -------------------------------
+    # 🔑 Fetch correlation context BEFORE filtering
+    active_power_issues = get_active_power_issues()
+
+    # new helper for LOS-OCH correlation
+    active_los_alarms = get_active_los_alarms()
+
     if should_drop_alarm(
         alarm_name=alarm_name,
         specific_problem=specific_problem,
@@ -77,12 +111,15 @@ def normalize_alarm(event):
         source=source,
         object_type=object_type,
         severity=severity,
+        affected_object_name=alarm.get("affectedObjectName"),
+        first_detected=epoch_ms_to_utc(alarm.get("firstTimeDetected")),
+        active_power_issues=active_power_issues,
+        active_los_alarms=active_los_alarms,  # ✅ ADD THIS LINE
     ):
         return None
+    
+    
 
-    # -------------------------------
-    # Normalized output
-    # -------------------------------
     return {
         "event_type": event_type,
         "event_time": notif.get("eventTime"),
@@ -106,10 +143,10 @@ def normalize_alarm(event):
             alarm.get("affectedObject")
         ),
 
-        "first_detected": epoch_ms_to_utc(
+        "first_detected": utc_ms_to_local_iso(
             alarm.get("firstTimeDetected")
         ),
-        "last_detected": epoch_ms_to_utc(
+        "last_detected": utc_ms_to_local_iso(
             alarm.get("lastTimeDetected")
         ),
 
